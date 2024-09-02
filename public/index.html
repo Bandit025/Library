@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Control Servo</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+    integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+    integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
+    crossorigin="anonymous"></script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <nav>
+    <div class="logo">
+      <img src="image/logo.png" alt="MyWebsite Logo">
+    </div>
+    <ul class="nav-links">
+      <li><a href="index.html">หน้าแรก</a></li>
+      <li><a href="librarylist.html">ห้องสมุด</a></li>
+      <li><a href="search.html">สถิติการเข้าใช้งาน</a></li>
+      <li><a href="contact.html">ติตต่อ</a></li>
+    </ul>
+  </nav>
+  <br><br><br><br><br><br>
+  <div class="container text-center">
+    <div class="row">
+      <div class="col" style="font-size: 60px; background-color: green; color: white; border-radius: 10px;">
+        <h1>จำนวนคนในห้องสมุด</h1>
+        <div id="data-container" >ข้อมูลที่นี่</div>
+      </div>
+      <div class="col-2">
+      </div>
+      <div class="col" style="font-size: 60px; background-color: rgb(128, 0, 0); color: white; border-radius: 10px;">
+        <h1>จำนวนผู้เข้าใช้วันนี้</h1>
+        <div id="libraryCount" style="font-size: 60px;"></div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="col text-right">
+        <pre id="student-data"></pre>
+      </div>
+      <div class="col-5">
+
+      </div>
+      <div class="col text-left">
+      </div>
+    </div>
+    <div class="row">
+      <div class="col">
+        <button class="btn btn-success" onclick="location.href='/moveServo2'">เปิด</button>
+
+      </div>
+      <div class="col">
+        <button class="btn btn-danger" onclick="location.href='/moveServo1'">ปิด</button>
+      </div>
+    </div>
+  </div>
+</body>
+<script src="script.js">
+</script>
+<script>
+  fetch('/api/library-count')
+    .then(response => response.json())
+    .then(data => {
+      const container = document.querySelector('#data-container');
+      container.innerHTML = `<p>${data.count}</p>`;
+    })
+    .catch(error => console.error('Error:', error));
+
+
+  fetch('/api/library-count-day')
+    .then(response => response.json())
+    .then(data => {
+      document.getElementById('libraryCount').textContent = ` ${data.unique_count}`;
+    })
+    .catch(error => console.error('Error fetching library count:', error));
+  setInterval(function () {
+    window.location.reload();
+  }, 10000); 
+</script>
+
+</html>
