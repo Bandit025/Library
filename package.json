@@ -15,6 +15,7 @@
     "mqtt": "^5.10.1",
     "mysql": "^2.18.1",
     "mysql2": "^3.11.0",
-    "nodemon": "^3.1.4"
+    "nodemon": "^3.1.4",
+    "rutsotp": "github:ruts48code/rutsotp"
   }
 }
