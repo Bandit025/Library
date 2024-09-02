@@ -79,6 +79,34 @@
   setInterval(function () {
     window.location.reload();
   }, 10000); 
+
+  function openServo() {
+            fetch('/api/open-servo', {
+                method: 'POST'
+            }).then(response => {
+                if (response.ok) {
+                    console.log('Servo opened');
+                } else {
+                    console.error('Failed to open servo');
+                }
+            }).catch(error => {
+                console.error('Error:', error);
+            });
+        }
+
+        function closeServo() {
+            fetch('/api/close-servo', {
+                method: 'POST'
+            }).then(response => {
+                if (response.ok) {
+                    console.log('Servo closed');
+                } else {
+                    console.error('Failed to close servo');
+                }
+            }).catch(error => {
+                console.error('Error:', error);
+            });
+        }
 </script>
 
 </html>
