@@ -27,18 +27,6 @@ connection.connect(error => {
   console.log('Connected to the database');
 });
 
-client.on('message', function (topic, message) {
-  var sensorValue = message.toString();
-
-  if (topic === 'home/sensor_in') {
-    var sensorInValue = sensorValue;
-    // console.log('Sensor value from home/sensor_in: ', sensorInValue);
-  } else if (topic === 'home/sensor_out') {
-    var sensorOutValue = sensorValue;
-    // console.log('Sensor value from home/sensor_out: ', sensorOutValue);
-  }
-});
-
 client.on('connect', function () {
   client.subscribe('home/QR_in', function (err) {
     if (!err) {
@@ -55,6 +43,11 @@ client.on('connect', function () {
       console.error('Failed to subscribe to topic:', err);
     }
   });
+  client.subscribe('home/QR_out', function (err) {
+    if (!err) {
+      console.log('Subscribed to home/QR_out');
+    }
+  });
 });
 
 client.on('message', function (topic, message) {
@@ -62,252 +55,211 @@ client.on('message', function (topic, message) {
   const receivedMessage = message.toString();
 
   if (receivedTopic === 'home/QR_in') {
-    const studentId = receivedMessage;
-
-    const uid = "gate";
-    const secret = "x00irMSat$lP";
-    const otpsize = 32;
-
-    const getTimex = () => {
-      const timenow = new Date();
-      var [date, month, year] = [timenow.getDate(), timenow.getMonth() + 1, timenow.getFullYear()];
-      var [hour, minute, second] = [timenow.getHours(), timenow.getMinutes(), timenow.getSeconds()];
-      if (month < 10) {
-        month = "0" + month;
-      }
-      if (date < 10) {
-        date = "0" + date;
-      }
-      if (hour < 10) {
-        hour = "0" + hour;
-      }
-      if (minute < 10) {
-        minute = "0" + minute;
-      }
-      if (second < 10) {
-        second = "0" + second;
-      }
-      return year + "-" + month + "-" + date + "T" + hour + ":" + minute + ":" + second;
-    }
-
-    const OTP = (secret, size) => {
-      const crypto = require('crypto');
-      const hmac = crypto.createHmac('sha512', getTimex());
-      return hmac.update(secret).digest('hex').slice(0, size * 2);
-    }
-
-    const getLibraryDataAPI = async (id) => {
-      const data = await fetch("https://api.rmutsv.ac.th/library/getdata/" + id + "/" + uid + "/" + OTP(secret, otpsize));
-      return await data.json();
-    }
-
-    (async () => {
-      try {
-        const data = await getLibraryDataAPI(studentId);
-        const checkSql = "SELECT * FROM library WHERE bib = ?";
-        connection.query(checkSql, [studentId], async function (err, result) {
-          if (err) throw err;
-
-          // If studentId exists, stop the servo motor
-          if (result.length > 0) {
-            console.log("คุณอยู่ในห้องสมุด");
-            client.publish('home/door', '0');
-          } else {
-            if (!data || !data.firstname || !data.lastname || !data.faccode || !data.facname || !data.depcode || !data.depname || !data.seccode || !data.secname || !data.email) {
-              console.log("ไม่พบข้อมูล");
-              return;
-            }
-
-            console.log("status:    " + data.status);
-            console.log("type:      " + data.type);
-            console.log("ชื่อ:        " + data.firstname);
-            console.log("สกุล:       " + data.lastname);
-            console.log("รหัสคณะ:    " + data.faccode);
-            console.log("ชื่อคณะ:     " + data.facname);
-            console.log("รหัสสาขา:   " + data.depcode);
-            console.log("ชื่อสาขา:    " + data.depname);
-            console.log("รหัสหลักสูตร: " + data.seccode);
-            console.log("ชื่อหลักสูตร:  " + data.secname);
-            console.log("email:     " + data.email);
-
-            client.publish('home/door', '90'); // Change this to the desired angle
-
-            let dataSaved = false;
-
-            client.on('message', (topic, message) => {
-              if (topic === 'home/sensor_in' && message.toString() === '0' && !dataSaved) {
-                const sql = "INSERT INTO walk_in (bib, fname, lname, faculty_name, branch_name, course_name) VALUES ?";
-                const values = [
-                  [studentId, data.firstname, data.lastname, data.facname, data.depname, data.secname]
-                ];
-                connection.query(sql, [values], function (err, result) {
-                  if (err) throw err;
-                  console.log("บันทึกข้อมูล walk_in");
-
-                  const sql2 = "INSERT INTO library (bib, fname, lname, faculty_name, branch_name, course_name) VALUES ?";
-                  const values2 = [
-                    [studentId, data.firstname, data.lastname, data.facname, data.depname, data.secname]
-                  ];
-                  connection.query(sql2, [values2], function (err, result) {
-                    if (err) throw err;
-                    console.log("บันทึกข้อมูล library");
-                    dataSaved = true;
-
-                    // หยุดการทำงานทันทีหลังจากการ insert ข้อมูลสำเร็จ
-                    return; // หรือใช้ process.exit() ถ้าต้องการหยุดโปรเซสทั้งหมด
-                  });
-                });
-                client.publish('home/door', '0');
-              }
-            });
-
-            setTimeout(() => {
-              client.publish('home/door', '0'); // Rotate back to 0 degrees after 10 seconds
-            }, 10000);
-          }
-        });
-      } catch (e) {
-        console.log(e);
-      }
-    })();
+    handleQRIn(receivedMessage);
+  } else if (receivedTopic === 'home/QR_out') {
+    handleQROut(receivedMessage);
+  } else if (receivedTopic === 'home/sensor_in') {
+    handleSensorIn(receivedMessage);
+  } else if (receivedTopic === 'home/sensor_out') {
+    handleSensorOut(receivedMessage);
   }
 });
 
+const handleQRIn = async (studentId) => {
+  const uid = "gate";
+  const secret = "x00irMSat$lP";
+  const otpsize = 32;
 
-// ......ทางออก.................ทางออก...............ทางออก.............................
+  const getTimex = () => {
+    const timenow = new Date();
+    const date = String(timenow.getDate()).padStart(2, '0');
+    const month = String(timenow.getMonth() + 1).padStart(2, '0');
+    const year = timenow.getFullYear();
+    const hour = String(timenow.getHours()).padStart(2, '0');
+    const minute = String(timenow.getMinutes()).padStart(2, '0');
+    const second = String(timenow.getSeconds()).padStart(2, '0');
+    return `${year}-${month}-${date}T${hour}:${minute}:${second}`;
+  }
 
- 
-client.on('connect', function () {
-  client.subscribe('home/QR_out', function (err) {
-    if (!err) {
-      console.log('Subscribed to home/QR_out');
-    }
-  });
-  client.subscribe('home/sensor_in', function (err) {
-    if (!err) {
-      // Subscribed to home/sensor_in
-    }
-  });
-  client.subscribe('home/sensor_out', function (err) {
-    if (!err) {
-      // Subscribed to home/sensor_out
-    }
-  });
-});
+  const OTP = (secret, size) => {
+    const crypto = require('crypto');
+    const hmac = crypto.createHmac('sha512', getTimex());
+    return hmac.update(secret).digest('hex').slice(0, size * 2);
+  }
 
-client.on('message', function (topic, message) {
-  const receivedTopic = topic;
-  const receivedMessage = message.toString();
+  const getLibraryDataAPI = async (id) => {
+    const data = await fetch("https://api.rmutsv.ac.th/library/getdata/" + id + "/" + uid + "/" + OTP(secret, otpsize));
+    return await data.json();
+  }
 
-  if (receivedTopic === 'home/QR_out') {
-    const studentIdOut = receivedMessage;
-    console.log(`Student ID Out: ${studentIdOut}`); // Log the received studentIdOut
+  try {
+    const data = await getLibraryDataAPI(studentId);
+    const checkSql = "SELECT * FROM library WHERE bib = ?";
+    connection.query(checkSql, [studentId], async function (err, result) {
+      if (err) throw err;
 
-    const uid = "gate";
-    const secret = "x00irMSat$lP";
-    const otpsize = 32;
+      // If studentId exists, stop the servo motor
+      if (result.length > 0) {
+        console.log("คุณอยู่ในห้องสมุด");
+        client.publish('home/door', '0');
+      } else {
+        if (!data || !data.firstname || !data.lastname || !data.faccode || !data.facname || !data.depcode || !data.depname || !data.seccode || !data.secname || !data.email) {
+          console.log("ไม่พบข้อมูล");
+          return;
+        }
 
-    const getTimex = () => {
-      const timenow = new Date();
-      var [date, month, year] = [timenow.getDate(), timenow.getMonth() + 1, timenow.getFullYear()];
-      var [hour, minute, second] = [timenow.getHours(), timenow.getMinutes(), timenow.getSeconds()];
-      if (month < 10) {
-        month = "0" + month;
-      }
-      if (date < 10) {
-        date = "0" + date;
-      }
-      if (hour < 10) {
-        hour = "0" + hour;
-      }
-      if (minute < 10) {
-        minute = "0" + minute;
-      }
-      if (second < 10) {
-        second = "0" + second;
-      }
-      return year + "-" + month + "-" + date + "T" + hour + ":" + minute + ":" + second;
-    }
+        console.log("status:    " + data.status);
+        console.log("type:      " + data.type);
+        console.log("ชื่อ:        " + data.firstname);
+        console.log("สกุล:       " + data.lastname);
+        console.log("รหัสคณะ:    " + data.faccode);
+        console.log("ชื่อคณะ:     " + data.facname);
+        console.log("รหัสสาขา:   " + data.depcode);
+        console.log("ชื่อสาขา:    " + data.depname);
+        console.log("รหัสหลักสูตร: " + data.seccode);
+        console.log("ชื่อหลักสูตร:  " + data.secname);
+        console.log("email:     " + data.email);
 
-    const OTP = (secret, size) => {
-      const crypto = require('crypto');
-      const hmac = crypto.createHmac('sha512', getTimex());
-      return hmac.update(secret).digest('hex').slice(0, size * 2);
-    }
+        client.publish('home/door', '90'); // Change this to the desired angle
 
-    const getStudentDataAPI = async (id) => {
-      const data = await fetch("https://api.rmutsv.ac.th/library/getdata/" + id + "/" + uid + "/" + OTP(secret, otpsize));
-      return await data.json();
-    }
+        let dataSaved = false;
 
-    (async () => {
-      try {
-        const data = await getStudentDataAPI(studentIdOut);
-        const checkSql = "SELECT * FROM library WHERE bib = ?";
-        connection.query(checkSql, [studentIdOut], async function (err, result) {
-          if (err) throw err;
+        client.on('message', (topic, message) => {
+          if (topic === 'home/sensor_in' && message.toString() === '0' && !dataSaved) {
+            const sql = "INSERT INTO walk_in (bib, fname, lname, faculty_name, branch_name, course_name) VALUES ?";
+            const values = [
+              [studentId, data.firstname, data.lastname, data.facname, data.depname, data.secname]
+            ];
+            connection.query(sql, [values], function (err, result) {
+              if (err) throw err;
+              console.log("บันทึกข้อมูล walk_in");
 
-          // If studentId exists, stop the servo motor
-          if (result.length === 0) {
-            console.log("คุณอยู่นอกห้องสมุด");
-            client.publish('home/door', '0');
-          } else {
-            if (!data || !data.firstname || !data.lastname || !data.faccode || !data.facname || !data.depcode || !data.depname || !data.seccode || !data.secname || !data.email) {
-              console.log("ไม่พบข้อมูล");
-              return;
-            }
+              const sql2 = "INSERT INTO library (bib, fname, lname, faculty_name, branch_name, course_name) VALUES ?";
+              const values2 = [
+                [studentId, data.firstname, data.lastname, data.facname, data.depname, data.secname]
+              ];
+              connection.query(sql2, [values2], function (err, result) {
+                if (err) throw err;
+                console.log("บันทึกข้อมูล library");
+                dataSaved = true;
 
-            console.log("status:    " + data.status);
-            console.log("type:      " + data.type);
-            console.log("ชื่อ:        " + data.firstname);
-            console.log("สกุล:       " + data.lastname);
-            console.log("รหัสคณะ:    " + data.faccode);
-            console.log("ชื่อคณะ:     " + data.facname);
-            console.log("รหัสสาขา:   " + data.depcode);
-            console.log("ชื่อสาขา:    " + data.depname);
-            console.log("รหัสหลักสูตร: " + data.seccode);
-            console.log("ชื่อหลักสูตร:  " + data.secname);
-            console.log("email:     " + data.email);
-
-            // Open the door
-            client.publish('home/door', '90'); // Change this to the desired angle
-            let dataSaved = false;
-
-            client.on('message', (topic, message) => {
-              if (topic === 'home/sensor_out' && message.toString() === '0' && !dataSaved) {
-                const sql = "INSERT INTO walk_out (bib,fname, lname,  faculty_name,  branch_name,  course_name) VALUES ?";
-                const values = [
-                  [studentIdOut, data.firstname, data.lastname, data.facname, data.depname, data.secname]
-                ];
-                connection.query(sql, [values], function (err, result) {
-                  if (err) throw err;
-                  console.log("บันทึกข้อมูล walk_out");
-                });
-
-                const sql2 = "DELETE FROM library WHERE bib = ?";
-                const values2 = [studentIdOut];
-                connection.query(sql2, [values2], function (err, result) {
-                  if (err) throw err;
-                  console.log("นำข้อมูล library ออก");
-                  dataSaved = true;
-                });
-
-                client.publish('home/door', '0');
-              }
+                // หยุดการทำงานทันทีหลังจากการ insert ข้อมูลสำเร็จ
+                return; // หรือใช้ process.exit() ถ้าต้องการหยุดโปรเซสทั้งหมด
+              });
             });
-
-            setTimeout(() => {
-              client.publish('home/door', '0'); // Rotate back to 0 degrees after 10 seconds
-            }, 10000);
+            client.publish('home/door', '0');
           }
         });
-      } catch (e) {
-        console.log(e);
-      }
-    })();
-  }
-});
 
+        setTimeout(() => {
+          client.publish('home/door', '0'); // Rotate back to 0 degrees after 10 seconds
+        }, 10000);
+      }
+    });
+  } catch (e) {
+    console.log(e);
+  }
+};
+
+const handleQROut = async (studentIdOut) => {
+  const uid = "gate";
+  const secret = "x00irMSat$lP";
+  const otpsize = 32;
+
+  const getTimex = () => {
+    const timenow = new Date();
+    const date = String(timenow.getDate()).padStart(2, '0');
+    const month = String(timenow.getMonth() + 1).padStart(2, '0');
+    const year = timenow.getFullYear();
+    const hour = String(timenow.getHours()).padStart(2, '0');
+    const minute = String(timenow.getMinutes()).padStart(2, '0');
+    const second = String(timenow.getSeconds()).padStart(2, '0');
+    return `${year}-${month}-${date}T${hour}:${minute}:${second}`;
+  }
+
+  const OTP = (secret, size) => {
+    const crypto = require('crypto');
+    const hmac = crypto.createHmac('sha512', getTimex());
+    return hmac.update(secret).digest('hex').slice(0, size * 2);
+  }
+
+  const getStudentDataAPI = async (id) => {
+    const data = await fetch("https://api.rmutsv.ac.th/library/getdata/" + id + "/" + uid + "/" + OTP(secret, otpsize));
+    return await data.json();
+  }
+
+  try {
+    const data = await getStudentDataAPI(studentIdOut);
+    const checkSql = "SELECT * FROM library WHERE bib = ?";
+    connection.query(checkSql, [studentIdOut], async function (err, result) {
+      if (err) throw err;
+
+      // If studentId exists, stop the servo motor
+      if (result.length === 0) {
+        console.log("คุณอยู่นอกห้องสมุด");
+        client.publish('home/door', '0');
+      } else {
+        if (!data || !data.firstname || !data.lastname || !data.faccode || !data.facname || !data.depcode || !data.depname || !data.seccode || !data.secname || !data.email) {
+          console.log("ไม่พบข้อมูล");
+          return;
+        }
+
+        console.log("status:    " + data.status);
+        console.log("type:      " + data.type);
+        console.log("ชื่อ:        " + data.firstname);
+        console.log("สกุล:       " + data.lastname);
+        console.log("รหัสคณะ:    " + data.faccode);
+        console.log("ชื่อคณะ:     " + data.facname);
+        console.log("รหัสสาขา:   " + data.depcode);
+        console.log("ชื่อสาขา:    " + data.depname);
+        console.log("รหัสหลักสูตร: " + data.seccode);
+        console.log("ชื่อหลักสูตร:  " + data.secname);
+        console.log("email:     " + data.email);
+
+        // Open the door
+        client.publish('home/door', '90'); // Change this to the desired angle
+        let dataSaved = false;
+
+        client.on('message', (topic, message) => {
+          if (topic === 'home/sensor_out' && message.toString() === '0' && !dataSaved) {
+            const sql = "INSERT INTO walk_out (bib,fname, lname,  faculty_name,  branch_name,  course_name) VALUES ?";
+            const values = [
+              [studentIdOut, data.firstname, data.lastname, data.facname, data.depname, data.secname]
+            ];
+            connection.query(sql, [values], function (err, result) {
+              if (err) throw err;
+              console.log("บันทึกข้อมูล walk_out");
+            });
+
+            const sql2 = "DELETE FROM library WHERE bib = ?";
+            const values2 = [studentIdOut];
+            connection.query(sql2, [values2], function (err, result) {
+              if (err) throw err;
+              console.log("นำข้อมูล library ออก");
+              dataSaved = true;
+            });
+
+            client.publish('home/door', '0');
+          }
+        });
+
+        setTimeout(() => {
+          client.publish('home/door', '0'); // Rotate back to 0 degrees after 10 seconds
+        }, 10000);
+      }
+    });
+  } catch (e) {
+    console.log(e);
+  }
+};
+
+const handleSensorIn = (sensorValue) => {
+  console.log('Sensor value from home/sensor_in: ', sensorValue);
+};
+
+const handleSensorOut = (sensorValue) => {
+  console.log('Sensor value from home/sensor_out: ', sensorValue);
+};
 
 client.on('error', function (error) {
   console.error('Failed to connect to MQTT broker:', error);
@@ -322,12 +274,6 @@ app.get('/moveServo2', function (req, res) {
   client.publish('home/door', '90')
   res.redirect('/');
 });
-
-
-client.on('connect', function () {
-  console.log('Connected to MQTT broker');
-});
-
 
 app.get('/api/library-count', (req, res) => {
   connection.query('SELECT COUNT(*) AS count FROM library', (error, results, fields) => {
@@ -355,14 +301,10 @@ app.get('/data', (req, res) => {
   });
 });
 
-
 // รับข้อมูลจาก search 
-
-
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'search.html'));
 });
-
 
 app.post('/search', (req, res) => {
   const date = req.body.date;
@@ -377,7 +319,6 @@ app.post('/search', (req, res) => {
     res.json(results);
   });
 });
-
 
 app.post('/search/walk_out', (req, res) => {
   const dateSearchValue = req.body.date;
@@ -395,7 +336,6 @@ app.post('/search/walk_out', (req, res) => {
     res.json(results); // ตรวจสอบว่าผลลัพธ์เป็นอาร์เรย์
   });
 });
-
 
 app.post('/search/walk_in-select', (req, res) => {
   const dateSearchValue = req.body.date;
@@ -415,7 +355,6 @@ app.post('/search/walk_in-select', (req, res) => {
   });
 });
 
-
 app.listen(3000, function () {
   console.log('Server is listening on port 3000');
-}); 
+});
